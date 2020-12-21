@@ -1,0 +1,356 @@
+---
+title: "Understanding the Impact of Covid-19 on Mental Health in Canada"
+subtitle: "Fitting logistic regression models using 2020 Mental Health Survey data"
+author: "Promiti Datta"
+date: December 21, 2020
+output: pdf_document
+abstract: "" 
+always_allow_html: true
+---
+\pagenumbering{gobble}
+\begin{center}
+Code supporting this analysis can be found at: 
+\end{center}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	fig.pos = 'H'
+)
+```
+
+
+```{r, results='asis'}
+library(survey)
+library(tidyverse)
+library(huxtable)
+library(ggplot2)
+
+survey_data1 = read_csv('survey_data_wave1.csv')
+
+survey_data1$race = case_when(
+        survey_data1$Q27 == "Asian ? East (e.g., Chinese, Japanese, Korean)" ~ "Asian",
+        survey_data1$Q27 == "Asian ? South (e.g., Indian, Pakistani, Sri Lankan)" ~ "Asian",
+        survey_data1$Q27 == "Asian ? South East (e.g., Malaysian, Filipino, Vietnamese)" ~ "Asian",
+        survey_data1$Q27 == "Black (Africa, Caribbean, North American)" ~ "Black",
+        survey_data1$Q27 == "White (European, North American)" ~ "White",
+        survey_data1$Q27 == "Latin American (e.g., Argentinean, Chilean, Salvadoran)" ~ "Latin American",
+        survey_data1$Q27 == "Indigenous (First Nations, Inuit, M-tis)" ~ "Indigenous",
+        TRUE ~ "Other"
+)
+
+survey_data1$anxiety = case_when(
+  survey_data1$`Q8x1` == "Nearly every day" ~ "Yes",
+  survey_data1$`Q8x1` == "Over half the days" ~ "Yes",
+  TRUE ~ "No"
+)
+
+survey_data5 = read_csv('survey_data_wave5.csv')
+
+survey_data5$race = case_when(
+        survey_data5$Q27 == "Asian ? East (e.g., Chinese, Japanese, Korean)" ~ "Asian",
+        survey_data5$Q27 == "Asian ? South (e.g., Indian, Pakistani, Sri Lankan)" ~ "Asian",
+        survey_data5$Q27 == "Asian ? South East (e.g., Malaysian, Filipino, Vietnamese)" ~ "Asian",
+        survey_data5$Q27 == "Black (Africa, Caribbean, North American)" ~ "Black",
+        survey_data5$Q27 == "White (European, North American)" ~ "White",
+        survey_data5$Q27 == "Latin American (e.g., Argentinean, Chilean, Salvadoran)" ~ "Latin American",
+        survey_data5$Q27 == "Indigenous (First Nations, Inuit, M-tis)" ~ "Indigenous",
+        TRUE ~ "Other"
+)
+
+survey_data5$anxiety = case_when(
+  survey_data5$`Q8x1` == "Nearly every day" ~ "Yes",
+  survey_data5$`Q8x1` == "Over half the days" ~ "Yes",
+  TRUE ~ "No"
+)
+
+survey_data5$depression = case_when(
+  survey_data5$`Q20x1` == "Most or all of the time (5-7 days)" ~ "Yes",
+  TRUE ~ "No"
+)
+
+survey_data2 = read_csv('survey_data_wave2.csv')
+survey_data2$anxiety = case_when(
+  survey_data2$`Q8x1` == "Nearly every day" ~ "Yes",
+  survey_data2$`Q8x1` == "Over half the days" ~ "Yes",
+  TRUE ~ "No"
+)
+survey_data3 = read_csv('survey_data_wave3.csv')
+survey_data3$anxiety = case_when(
+  survey_data3$`Q8x1` == "Nearly every day" ~ "Yes",
+  survey_data3$`Q8x1` == "Over half the days" ~ "Yes",
+  TRUE ~ "No"
+)
+survey_data4 = read_csv('survey_data_wave4.csv')
+survey_data4$anxiety = case_when(
+  survey_data4$`Q8x1` == "Nearly every day" ~ "Yes",
+  survey_data4$`Q8x1` == "Over half the days" ~ "Yes",
+  TRUE ~ "No"
+)
+```
+
+# Introduction
+
+Amidst one of the biggest global health crises of the past century, people around the world have experienced a lot of uncertainty about their future, whether it be around their health, financial status, or other reasons. Like many countries around the world, Canadians have spent the majority of 2020 in varying degrees of pandemic related lockdown. With people’s daily lives changing so much during the coronavirus pandemic, it is important to address increasing concerns around mental health. Through large scale mental health surveys like the one in this paper, state and federal governments can understand the most vulnerable populations for poor mental health and launch targeted support programs.
+
+This paper analyzes a survey done by the Center for Addiction and Mental Health to gauge the overall mental health of Canadians at various points throughout the Covid-19 pandemic. This data is used to create logistic regression models for anxiety, depression, and alcohol abuse. Since the same survey was done at different times of the year, this paper will also look at the trends over time.
+
+# Methodology
+
+## Data
+
+Results of this survey are from a total of 1,003 Canadian adults. The survey was collected online on the Asking Canadians web panel, which is an online research community of participants of different demographic backgrounds who voluntarily complete surveys. The same survey was rerun five times throughout 2020: on May 8, May 29, June 19, July 10, and September 18. Each iteration had different participants, but was sampled in the same way as outlined above (COVID-19 Pandemic, 2020). 
+
+The basic frequency distributions of the participants by province, age group, gender, and race are shown in Table A in the Appendix. From these charts, we see a fairly equal gender distribution and age distribution, with slightly more respondents from the 18-39 age group. Within the race and province distributions, there were a lot more whites than any other race and more people from Ontario than any other province. However, given the demographic data of Canada, this is to be expected in a random survey and therefore this does not indicate a flaw in the survey (Government of Canada, 2020).  
+
+
+Next we look at the baseline of Canadians who reported feeling anxious, over time throughout the five iterations of the survey.
+
+```{r}
+#library('DescTools')
+#UncertCoef(survey_data1$`Q8x4 : P2W frequency - Trouble relaxing`, survey_data1$`Q8x5 : P2W frequency - Being so restless that it?s hard to sit still`, direction = "column")
+```
+
+
+```{r}
+library(survey)
+
+n = nrow(survey_data5)
+N = 37742154
+
+fpc.srs = rep(N, n)
+
+camh_survey.design <- svydesign(id=~1, data = survey_data5, fpc=fpc.srs)
+
+meanestimate_anxiety = svymean(~anxiety, design = camh_survey.design) 
+meanestimate_depression = svymean(~depression, design = camh_survey.design) 
+
+meanest1 = hux(
+  "Frequent Anxiety" = c("Yes","No"),
+  Mean = c(0.25274, 0.74726),
+  SE = c(0.0137,0.0137)
+) 
+meanest1 %>% 
+  set_bold(1, everywhere) %>% 
+  set_bottom_border(1, everywhere) %>% 
+  set_caption("Survey-based estimates of fraction of population with frequent anxiety") 
+
+meanest2 = hux(
+  "Frequent Depression" = c("Yes","No"),
+  Mean = c(0.068794, 0.931206),
+  SE = c(0.008,0.008)
+) 
+meanest2 %>% 
+  set_bold(1, everywhere) %>% 
+  set_bottom_border(1, everywhere) %>% 
+  set_caption("Survey-based estimates of fraction of population with frequent depression") 
+
+
+```
+
+
+```{r}
+percent_1 = 100 * count(survey_data1 %>% filter(anxiety == "Yes")) / nrow(survey_data1)
+percent_2 = 100 * count(survey_data2 %>% filter(anxiety == "Yes")) / nrow(survey_data2)
+percent_3 = 100 * count(survey_data3 %>% filter(anxiety == "Yes")) / nrow(survey_data3)
+percent_4 = 100 * count(survey_data4 %>% filter(anxiety == "Yes")) / nrow(survey_data4)
+percent_5 = 100 * count(survey_data5 %>% filter(anxiety == "Yes")) / nrow(survey_data5)
+percents_overall = c(percent_1$n, percent_2$n, percent_3$n, percent_4$n, percent_5$n)
+
+total_women = count(survey_data1 %>% filter(hGender == "Female"))$n
+women_1 = 100 * count(survey_data1 %>% filter(anxiety == "Yes" & hGender == "Female")) / total_women
+women_2 = 100 * count(survey_data2 %>% filter(anxiety == "Yes" & hGender == "Female")) / total_women
+women_3 = 100 * count(survey_data3 %>% filter(anxiety == "Yes" & hGender == "Female")) / total_women
+women_4 = 100 * count(survey_data4 %>% filter(anxiety == "Yes" & hGender == "Female")) / total_women
+women_5 = 100 * count(survey_data5 %>% filter(anxiety == "Yes" & Gender == "Female")) / total_women
+percents_women = c(women_1$n, women_2$n, women_3$n, women_4$n, women_5$n)
+
+total_men = count(survey_data1 %>% filter(hGender == "Male"))$n
+men_1 = 100 * count(survey_data1 %>% filter(anxiety == "Yes" & hGender == "Male")) / total_men
+men_2 = 100 * count(survey_data2 %>% filter(anxiety == "Yes" & hGender == "Male")) / total_men
+men_3 = 100 * count(survey_data3 %>% filter(anxiety == "Yes" & hGender == "Male")) / total_men
+men_4 = 100 * count(survey_data4 %>% filter(anxiety == "Yes" & hGender == "Male")) / total_men
+men_5 = 100 * count(survey_data5 %>% filter(anxiety == "Yes" & Gender == "Male")) / total_men
+percents_men = c(men_1$n, men_2$n, men_3$n, men_4$n, men_5$n)
+
+total_18 = count(survey_data1 %>% filter(hAge == "18-39"))$n
+age18_1 = 100 * count(survey_data1 %>% filter(anxiety == "Yes" & hAge == "18-39")) / total_18
+age18_2 = 100 * count(survey_data2 %>% filter(anxiety == "Yes" & hAge == "18-39")) / total_18
+age18_3 = 100 * count(survey_data3 %>% filter(anxiety == "Yes" & hAge == "18-39")) / total_18
+age18_4 = 100 * count(survey_data4 %>% filter(anxiety == "Yes" & hAge == "18-39")) / total_18
+age18_5 = 100 * count(survey_data5 %>% filter(anxiety == "Yes" & Age == "18-39")) / total_18
+percents_age18 = c(age18_1$n, age18_2$n, age18_3$n, age18_4$n, men_5$n)
+```
+
+
+```{r, results='asis', fig.cap="Anxiety of participants at different points in time"}
+data <- data.frame(
+  date=c('May 8', 'May 29', 'Jun 19', 'Jul 10', 'Sept 18'),
+  overall = percents_overall,
+  women = percents_women,
+  men = percents_men
+)
+data$date <- ordered(data$date, levels=c('May 8', 'May 29', 'Jun 19', 'Jul 10', 'Sept 18'))
+ggplot(data, aes(x=factor(date), group=1)) +
+  xlab("Survey Date") + ylab("Percentage of Sample with Frequent Anxiety") + 
+  ggtitle("Breakdown of Anxiety Over Time for Women vs. Men") + 
+  geom_line(aes(y = overall, colour = "Overall Population")) +
+  geom_point(aes(y = overall, colour = "Overall Population")) +
+  geom_line(aes(y = women, colour = "Women")) +
+  geom_point(aes(y = women, colour = "Women")) +
+  geom_line(aes(y = men, colour = "Men")) +
+  geom_point(aes(y = men, colour = "Men"))
+```
+
+```{r, results='asis'}
+data <- data.frame(
+  date=c('May 8', 'May 29', 'Jun 19', 'Jul 10', 'Sept 18'),
+  overall = percents_overall,
+  age18 = percents_age18,
+  men = percents_men
+)
+data$date <- ordered(data$date, levels=c('May 8', 'May 29', 'Jun 19', 'Jul 10', 'Sept 18'))
+ggplot(data, aes(x=factor(date), group=1)) +
+  xlab("Survey Date") + ylab("Percentage of Sample with Frequent Anxiety") + 
+  ggtitle("Breakdown of Anxiety Over Time for Different Age Groups") + 
+  geom_line(aes(y = overall, colour = "Overall Population")) +
+  geom_point(aes(y = overall, colour = "Overall Population")) +
+  geom_line(aes(y = age18, colour = "Age 18-39")) +
+  geom_point(aes(y = age18, colour = "Age 18-39")) +
+  geom_line(aes(y = age40, colour = "Age 40-59")) +
+  geom_point(aes(y = age40, colour = "Age 40-59")) +
+  geom_line(aes(y = age60, colour = "Age 60+")) +
+  geom_point(aes(y = age60, colour = "Age 60+"))
+```
+
+## Model
+
+```{r}
+library(MASS)
+survey_data5$anxiety_binary = case_when(
+  survey_data5$anxiety == "Yes" ~ 1,
+  survey_data5$anxiety == "No" ~ 0,
+)
+
+survey_data5$Male = case_when(
+  survey_data5$Gender == "Male" ~ "Male",
+  TRUE ~ "Not Male"
+)
+
+myglm = glm(anxiety_binary ~ Age + Region + Male + Income + Area, data=survey_data5, family = "binomial")
+mystepaic = stepAIC(myglm, trace = FALSE)
+```
+
+
+```{r, fig.height=4, fig.width=10, results='asis'}
+library(jtools)
+library(gridExtra)
+nonstepwiseplot = plot_summs(myglm,
+               model.names = c("Coefficients"),
+               coefs = c("Intercept" = "(Intercept)",
+                                       "Age: 40-59" = "Age40-59",
+                                       "Age: 60+" = "Age60+",
+                                       "Not Male" = "MaleNot Male",
+                                       "Income: 40-79k" = "Income40-79k",
+                                       "Income: 80-119k" = "Income80-119k",
+                                       "Income: Less than 40k" = "IncomeLess than 40k",
+                                       "Income: NA" = "IncomePrefer not to answer",
+                                       "Region: BC" = "RegionBC",
+                                       "Region: YK/NT/NU " = "RegionYK/NT/NU ",
+                                       "Region: ON" = "RegionON",
+                                       "Region: QC" = "RegionQC/ATL",
+                                       "Region: SK/MN" = "RegionSK/MN",
+                                       "Suburban area " = "AreaSuburban area",
+                                       "Urban area" =  "AreaUrban area"),
+             robust = TRUE,
+             legend.title = "Intention to have children model")
+
+stepwiseplot = plot_summs(mystepaic,
+               model.names = c("Coefficients, P-values"),
+               coefs = c("Intercept" = "(Intercept)",
+                         "Age: 40-59" = "Age40-59",
+                         "Age: 60+" = "Age60+",
+                         "Not Male" = "MaleNot Male",
+                         "Income: 40-79k" = "Income40-79k",
+                         "Income: 80-119k" = "Income80-119k",
+                         "Income: Less than 40k" = "IncomeLess than 40k",
+                         "Income: Prefer not to answer" = "IncomePrefer not to answer",
+                         "Suburban area " = "AreaSuburban area",
+                         "Urban area" =  "AreaUrban area"),
+             robust = TRUE,
+             legend.title = "Intention to have children model")
+
+apatheme= theme_bw()+
+theme(panel.grid.major=element_blank(),
+    panel.grid.minor=element_blank(),
+    panel.border=element_blank(),
+    axis.line=element_line(),
+    legend.title=element_blank(), 
+    axis.text=element_text(size=),
+    axis.title=element_text(size=),
+    legend.text = element_text(size =))
+
+plot1 = nonstepwiseplot  + apatheme + labs(x = "\n Coefficient Estimate - Non-Stepwise \n ", y = "Factor \n")
+plot2 = stepwiseplot  + apatheme + labs(x = "\n Coefficient Estimate - Stepwise \n ", y = NULL)
+
+grid.arrange(plot1, plot2, ncol=2, nrow=1)
+```
+
+Since this analysis will be predicting the outcome of the binary variable of whether or not a person has anxiety based on a number of categorical factors, a logistic regression model for anxiety would be appropriate.
+We identified previously that age, gender, and income were likely factors that had a high impact on the outcome of the predictor variable, whether the person had anxiety or not. To simplify and limit the model to only the most important features, we used stepwise AIC selection, which is a common method in statistics for selection of independent variables. In Figure ___, the left and right plot show the distribution of coefficients in the model, with the coefficients above 1 having a positive impact on anxiety, and coefficients below one having a negative impact. The left plot shows all the variables in consideration for a model, whereas the right plot shows only the variables selected by the stepwise AIC method. 
+
+
+# Results 
+
+# Discussion
+
+## Summary
+
+## Weaknesses and Next Steps
+
+# References
+
+COVID-19 pandemic adversely affecting mental health of women and people with children. (2020, October 14). CAMH. https://www.camh.ca/en/camh-news-and-stories/covid-19-pandemic-adversely-affecting-mental-health-of-women-and-people-with-children
+
+Government of Canada, S. (2020, September 29). Population and demography statistics. Retrieved December 09, 2020, from https://www.statcan.gc.ca/eng/subjects-start/population_and_demography 
+
+\newpage
+# Appendix
+
+## A: Raw distributions of predictor variables
+```{r,results='asis',fig.cap= "Category Distributions by Variable", fig.width=12, fig.height=9}
+library(gridExtra)
+plot1 = ggplot(survey_data5, aes(x = Gender)) + geom_bar(fill = "#0073C2FF", width=0.7) + ggtitle("Distribution of Responses by Gender") + 
+  xlab("Gender Identity") + ylab("Frequency") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+plot2 = ggplot(survey_data5, aes(x = race)) + geom_bar(fill = "#0073C2FF", width=0.7) + ggtitle("Distribution of Responses by Race") + 
+  xlab("Race") + ylab("Frequency") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+plot3 = ggplot(survey_data5, aes(x = province)) + geom_bar(fill = "#0073C2FF", width=0.7) + ggtitle("Distribution of Responses by Canadian Province") + 
+  xlab("Province") + ylab("Frequency") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+plot4 = ggplot(survey_data5, aes(x = Age)) + geom_bar(fill = "#0073C2FF", width=0.7) + ggtitle("Distribution of Responses by Age Group") + 
+  xlab("Age Group") + ylab("Frequency") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+grid.arrange(plot1, plot2, plot3, plot4, ncol=2, nrow=2)
+```
+## B: Model Coefficients
+```{r, results='asis', fig.cap='Coefficients for Stepwise Logistic Regression Model for Anxiety'}
+library(jtools)
+export_summs(mystepaic,
+               model.names = c("Coefficients, P-values"),
+               coefs = c("Intercept" = "(Intercept)",
+                         "Age: 40-59" = "Age40-59",
+                         "Age: 60+" = "Age60+",
+                         "Not Male" = "MaleNot Male",
+                         "Income: 40-79k" = "Income40-79k",
+                         "Income: 80-119k" = "Income80-119k",
+                         "Income: Less than 40k" = "IncomeLess than 40k",
+                         "Income: Prefer not to answer" = "IncomePrefer not to answer",
+                         "Suburban area " = "AreaSuburban area",
+                         "Urban area" =  "AreaUrban area"),
+             scale = FALSE,
+             robust = TRUE, error_pos = 'same', error_format = " (p-value = {p.value})") %>% 
+  set_caption("Survey-based estimates of logistic model of Factors impacting Anxiety")
+```
